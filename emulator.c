@@ -34,7 +34,7 @@ int parity(uint8_t v) {
 	return ((count % 2) == 1);
 }
 
-int address(hw_state* state) { // get the memory address described by h and l
+int hl_address(hw_state* state) { // get the memory address offset denoted by h and l
 	return (state->h<<8) | (state->l);
 }
 
@@ -53,19 +53,46 @@ void lxi(hw_state* state, byte* opcode, char reg) {
 	state->pc += 2;
 }
 
+// Add v to accumulator, update condition bits
 void add(hw_state* state, uint16_t v) {
 	uint16_t a = (uint16_t) state->a;
 	uint16_t answer = a + v; // keep 16 bit answer to determine carry
-	uint8_t answer_8b = answer & 0xff // convert to 8 bit
+	uint8_t answer_8b = answer & 0xff; // convert to 8 bit
 	state->cc.z = ((answer_8b) == 0); // set zero bit if answer is zero
 	state->cc.s = ((answer_8b & 0x80) != 0); // 1 if bit 7 is 1 (answer is negative), 0 otherwise
-	state->cc.p = parity(answer_8b) // check parity
-	state->cc.cy = (answer > 0xff) // set carry if answer uses more than 8 bits
+	state->cc.p = parity(answer_8b); // check parity
+	state->cc.cy = (answer > 0xff); // Set carry if overflow occured
 	state->a = answer_8b; // update A register
 	state->pc += 1;
 }
 
-// executes next instruction for processor in hw_state state
+// Add v plus carry bit to accumulator, update condition bits
+void adc(hw_state* state, uint16_t v) {
+	v += (uint16_t) state->cy; // add carry bit to input value
+	add(state, v); // perform standard addition with new value
+}
+
+// Subtract v from accumulator, update condition bits
+void sub(hw_state* state, uint16_t v) {
+	uint16_t a = (uint16_t) state->a;
+	uint16_t v_tc = (uint16_t) (~state->v) + 1 // two's complement of v
+	uint16_t answer = a + v_tc; // keep 16 bit answer to determine carry
+	uint8_t answer_8b = answer & 0xff; // convert to 8 bit
+	state->cc.z = ((answer_8b) == 0); // set zero bit if answer is zero
+	state->cc.s = ((answer_8b & 0x80) != 0); // 1 if bit 7 is 1 (answer is negative), 0 otherwise
+	state->cc.p = parity(answer_8b); // check parity
+	state->cc.cy = (answer < 0xff); // Set carry if overflow did NOT occur (i.e. borrow occured)
+	state->a = answer_8b; // update A register
+	state->pc += 1;
+}
+
+// Subtract v plus carry bit from accumulator, update condition bits
+void sbb(hw_state* state, uint16_t v) {
+	v += (uint16_t) state->cy; // add carry bit to input value
+	sub(state, v); // perform standard subtraction with new value
+}
+
+// executes next instruction for processor in state hw_state
 void emulate_op(hw_state* state) {
 	byte* opcode = &state->memory[state->pc]; // the address of the current instruction in memory
 	int size = 1;
@@ -199,38 +226,38 @@ void emulate_op(hw_state* state) {
 		case 0x7d: printf("MOV A,L\n"); unimplemented(state); break;
 		case 0x7e: printf("MOV A,M\n"); unimplemented(state); break;
 		case 0x7f: printf("MOV A,A\n"); unimplemented(state); break;
-		case 0x80: printf("ADD B\n"); add(state, state->b); break; // Add register to acculumator
+		case 0x80: printf("ADD B\n"); add(state, state->b); break;
 		case 0x81: printf("ADD C\n"); add(state, state->c); break;
 		case 0x82: printf("ADD D\n"); add(state, state->d); break;
 		case 0x83: printf("ADD E\n"); add(state, state->e); break;
 		case 0x84: printf("ADD H\n"); add(state, state->h) break;
 		case 0x85: printf("ADD L\n"); add(state, state->l) break;
-		case 0x86: printf("ADD M\n"); add(state, memory[address(state)]); break;
+		case 0x86: printf("ADD M\n"); add(state, memory[hl_address(state)]); break;
 		case 0x87: printf("ADD A\n"); add(state, state->a) break;
-		case 0x88: printf("ADC B\n"); unimplemented(state); break; // Add register plus carry to accumulator
-		case 0x89: printf("ADC C\n"); unimplemented(state); break;
-		case 0x8a: printf("ADC D\n"); unimplemented(state); break;
-		case 0x8b: printf("ADC E\n"); unimplemented(state); break;
-		case 0x8c: printf("ADC H\n"); unimplemented(state); break;
-		case 0x8d: printf("ADC L\n"); unimplemented(state); break;
-		case 0x8e: printf("ADC M\n"); unimplemented(state); break;
-		case 0x8f: printf("ADC A\n"); unimplemented(state); break;
-		case 0x90: printf("SUB B\n"); unimplemented(state); break; // Subtract register from accumulator
-		case 0x91: printf("SUB C\n"); unimplemented(state); break;
-		case 0x92: printf("SUB D\n"); unimplemented(state); break;
-		case 0x93: printf("SUB E\n"); unimplemented(state); break;
-		case 0x94: printf("SUB H\n"); unimplemented(state); break;
-		case 0x95: printf("SUB L\n"); unimplemented(state); break;
-		case 0x96: printf("SUB M\n"); unimplemented(state); break;
-		case 0x97: printf("SUB A\n"); unimplemented(state); break;
-		case 0x98: printf("SBB B\n"); unimplemented(state); break; // Subtract register from accumulator with borrow
-		case 0x99: printf("SBB C\n"); unimplemented(state); break;
-		case 0x9a: printf("SBB D\n"); unimplemented(state); break;
-		case 0x9b: printf("SBB E\n"); unimplemented(state); break;
-		case 0x9c: printf("SBB H\n"); unimplemented(state); break;
-		case 0x9d: printf("SBB L\n"); unimplemented(state); break;
-		case 0x9e: printf("SBB M\n"); unimplemented(state); break;
-		case 0x9f: printf("SBB A\n"); unimplemented(state); break;
+		case 0x88: printf("ADC B\n"); add(state, state->b); break;
+		case 0x89: printf("ADC C\n"); add(state, state->c); break;
+		case 0x8a: printf("ADC D\n"); add(state, state->d); break;
+		case 0x8b: printf("ADC E\n"); add(state, state->e); break;
+		case 0x8c: printf("ADC H\n"); add(state, state->h); break;
+		case 0x8d: printf("ADC L\n"); add(state, state->l); break;
+		case 0x8e: printf("ADC M\n"); add(state, memory[hl_address(state)]); break;
+		case 0x8f: printf("ADC A\n"); add(state, state->a); break;
+		case 0x90: printf("SUB B\n"); sub(state, state->b); break; // Subtract register from accumulator
+		case 0x91: printf("SUB C\n"); sub(state, state->c); break;
+		case 0x92: printf("SUB D\n"); sub(state, state->d); break;
+		case 0x93: printf("SUB E\n"); sub(state, state->e); break;
+		case 0x94: printf("SUB H\n"); sub(state, state->h); break;
+		case 0x95: printf("SUB L\n"); sub(state, state->l); break;
+		case 0x96: printf("SUB M\n"); sub(state, memory[hl_address(state)]); break;
+		case 0x97: printf("SUB A\n"); sbb(state, state->a); break;
+		case 0x98: printf("SBB B\n"); sbb(state, state->b); break; // Subtract register from accumulator with borrow
+		case 0x99: printf("SBB C\n"); sbb(state, state->c); break;
+		case 0x9a: printf("SBB D\n"); sbb(state, state->d); break;
+		case 0x9b: printf("SBB E\n"); sbb(state, state->e); break;
+		case 0x9c: printf("SBB H\n"); sbb(state, state->h); break;
+		case 0x9d: printf("SBB L\n"); sbb(state, state->l); break;
+		case 0x9e: printf("SBB M\n"); sbb(state, memory[hl_address(state)]); break;
+		case 0x9f: printf("SBB A\n"); sbb(state, state->a); break;
 		case 0xa0: printf("ANA B\n"); unimplemented(state); break; // Bitwise AND register with accumulator
 		case 0xa1: printf("ANA C\n"); unimplemented(state); break;
 		case 0xa2: printf("ANA D\n"); unimplemented(state); break;
