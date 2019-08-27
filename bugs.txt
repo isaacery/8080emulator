@@ -1,0 +1,1 @@
+The accumulator doesn't overflow as you would expect (i.e. can hold values above 127). Is this just a printing issue?

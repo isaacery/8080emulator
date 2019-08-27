@@ -474,7 +474,7 @@ int main(int argc, char** argv) {
 	c_bits bits;
 	hw_state state = {.cc = bits, .memory = buffer}; // initialize state, load program into memory
 	int x = 0;
-	while (x < 10) {
+	while (x < 20) {
 		printf("PC: %04X ", state.pc);
 		printf("ACCUMULATOR: %d ", state.a);
 		emulate(&state);
