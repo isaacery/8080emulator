@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 typedef unsigned char byte;
 typedef struct c_bits { // condition code bits
 	uint8_t z:1; // zero bit, set when the result is zero
@@ -34,34 +35,6 @@ int parity(uint8_t v) {
 	return ((count % 2) == 1);
 }
 
-// Returns the specified register
-uint8_t get_reg(hw_state* state, char reg) {
-	switch(reg) {
-		case 'B': return hw_state->b;
-		case 'C': return hw_state->c;
-		case 'D': return hw_state->d;
-		case 'E': return hw_state->e;
-		case 'H': return hw_state->h;
-		case 'L': return hw_state->l;
-		case 'M': return hw_state->memory[get_reg_pair('H')];
-		case 'A': return hw_state->a;
-	}
-}
-
-// Sets the specified regist to value v
-void set_reg(hw_state* state, uint8_t v, char reg) {
-	switch(reg) {
-		case 'B': hw_state->b = v; break;
-		case 'C': hw_state->c = v; break;
-		case 'D': hw_state->d = v; break;
-		case 'E': hw_state->e = v; break;
-		case 'H': hw_state->h = v; break;
-		case 'L': hw_state->l = v; break;
-		case 'M': hw_state->memory[get_reg_pair('H')] = v; break;
-		case 'A': hw_state->a = v; break;
-	}
-}
-
 // Returns the 16 bit value stored in specified register pair
 uint16_t get_reg_pair(hw_state* state, char reg) {
 	switch(reg) {
@@ -79,6 +52,34 @@ void set_reg_pair(hw_state* state, uint16_t v, char reg) {
 		case 'D': state->d = (v>>8) & 0xff; state->e = v & 0xff; break;
 		case 'H': state->h = (v>>8) & 0xff; state->l = v & 0xff; break;
 		case 'S': state->sp = v;
+	}
+}
+
+// Returns the specified register
+uint8_t get_reg(hw_state* state, char reg) {
+	switch(reg) {
+		case 'B': return state->b;
+		case 'C': return state->c;
+		case 'D': return state->d;
+		case 'E': return state->e;
+		case 'H': return state->h;
+		case 'L': return state->l;
+		case 'M': return state->memory[get_reg_pair(state,'H')];
+		case 'A': return state->a;
+	}
+}
+
+// Sets the specified regist to value v
+void set_reg(hw_state* state, uint8_t v, char reg) {
+	switch(reg) {
+		case 'B': state->b = v; break;
+		case 'C': state->c = v; break;
+		case 'D': state->d = v; break;
+		case 'E': state->e = v; break;
+		case 'H': state->h = v; break;
+		case 'L': state->l = v; break;
+		case 'M': state->memory[get_reg_pair(state,'H')] = v; break;
+		case 'A': state->a = v; break;
 	}
 }
 
@@ -111,14 +112,14 @@ void add(hw_state* state, uint16_t v) {
 
 // Add v plus carry bit to accumulator, update condition bits
 void adc(hw_state* state, uint16_t v) {
-	v += (uint16_t) state->cy; // add carry bit to input value
+	v += (uint16_t) state->cc.cy; // add carry bit to input value
 	add(state, v); // perform standard addition with new value
 }
 
 // Subtract v from accumulator, update condition bits
 void sub(hw_state* state, uint16_t v) {
 	uint16_t a = (uint16_t) state->a;
-	uint16_t v_tc = (uint16_t) ~v + 1 // two's complement of v
+	uint16_t v_tc = (uint16_t) ~v + 1; // two's complement of v
 	uint16_t answer = a + v_tc; // keep 16 bit answer to determine carry
 	uint8_t answer_8b = answer & 0xff; // convert to 8 bit
 	state->cc.z = ((answer_8b) == 0); // set zero bit if answer is zero
@@ -138,8 +139,8 @@ void inx(hw_state* state, char reg) {
 // Decrement register pair by 1
 void dcx(hw_state* state, char reg) {
 	uint16_t v = get_reg_pair(state,reg);
-	v += ~1 + 1 // -1 in TC TODO: is this necessary?
-	set_reg_pair(v);
+	v += ~1 + 1; // -1 in TC TODO: is this necessary?
+	set_reg_pair(state, v, reg);
 }
 
 // Increment register by 1, does not affect carry
@@ -155,7 +156,7 @@ void inr(hw_state* state, char reg) {
 // Decrement register by 1, does not affect carry
 void dcr(hw_state* state, char reg) {
 	uint8_t v = get_reg(state,reg); // get value in register reg
-	uint8_t answer = v + (~1 + 1) // TODO: is this necessary?
+	uint8_t answer = v + (~1 + 1); // TODO: is this necessary?
 	state->cc.z = ((answer) == 0); // set zero bit if answer is zero
 	state->cc.s = ((answer & 0x80) != 0); // 1 if bit 7 is 1 (answer is negative), 0 otherwise
 	state->cc.p = parity(answer); // check parity
@@ -164,7 +165,7 @@ void dcr(hw_state* state, char reg) {
 
 // Subtract v plus carry bit from accumulator, update condition bits
 void sbb(hw_state* state, uint16_t v) {
-	v += (uint16_t) state->cy; // add carry bit to input value
+	v += (uint16_t) state->cc.cy; // add carry bit to input value
 	sub(state, v); // perform standard subtraction with new value
 }
 
@@ -177,7 +178,7 @@ void dad(hw_state* state, char reg) {
 }
 
 // Executes next instruction for processor in state hw_state
-void emulate_op(hw_state* state) {
+void emulate(hw_state* state) {
 	byte* opcode = &state->memory[state->pc]; // the address of the current instruction in memory
 	int size = 1;
     // Each "register pair" is denoted by the first register. E.g. 'B' can refer to the pair B, C
@@ -188,7 +189,7 @@ void emulate_op(hw_state* state) {
 		case 0x03: printf("INX B\n"); inx(state,'B'); break; // Increment 16-bit value in register pair
 		case 0x04: printf("INR B\n"); inr(state,'B'); break; // Increment register
 		case 0x05: printf("DCR B\n"); dcr(state,'B'); break; // Decrement register
-        case 0x06: printf("MVI B,#$%02x\n", pointer[1]); size = 2; unimplemented(state); break; // Load immediate into register
+        case 0x06: printf("MVI B,#$%02x\n", opcode[1]); size = 2; unimplemented(state); break; // Load immediate into register
 		case 0x07: printf("RLC\n"); unimplemented(state); break; // Rotate accumulator left
 		case 0x08: printf("NOP\n"); break;
 		case 0x09: printf("DAD B\n"); dad(state,'B'); break; // Add register pair to H and L registers
@@ -196,15 +197,15 @@ void emulate_op(hw_state* state) {
 		case 0x0b: printf("DCX B\n"); dcx(state,'B'); break; // Decrement 16-bit value in register pair
 		case 0x0c: printf("INR C\n"); inr(state,'C'); break;
 		case 0x0d: printf("DCR C\n"); dcr(state,'C'); break;
-        case 0x0e: printf("MVI C,#$%02x\n", pointer[1]); size = 2; unimplemented(state); break;
+        case 0x0e: printf("MVI C,#$%02x\n", opcode[1]); size = 2; unimplemented(state); break;
 		case 0x0f: printf("RRC\n"); unimplemented(state); break; // Rotate accumulator right
 		case 0x10: printf("NOP\n"); break;
-        case 0x11: printf("LXI D,#$%02x%02x\n", pointer[2], pointer[1]); size = 3; unimplemented(state); break;
+        case 0x11: printf("LXI D,#$%02x%02x\n", opcode[2], opcode[1]); size = 3; unimplemented(state); break;
 		case 0x12: printf("STAX D\n"); unimplemented(state); break;
 		case 0x13: printf("INX D\n"); inx(state,'D'); break;
 		case 0x14: printf("INR D\n"); inr(state,'D'); break;
 		case 0x15: printf("DCR D\n"); dcr(state,'D'); break;
-        case 0x16: printf("MVI D,#$%02x\n", pointer[1]); size = 2; unimplemented(state); break;
+        case 0x16: printf("MVI D,#$%02x\n", opcode[1]); size = 2; unimplemented(state); break;
 		case 0x17: printf("RAL\n"); unimplemented(state); break; // Rotate accumulator left through carry
 		case 0x18: printf("NOP\n"); break;
 		case 0x19: printf("DAD D\n"); dad(state,'D'); break;
@@ -212,39 +213,39 @@ void emulate_op(hw_state* state) {
 		case 0x1b: printf("DCX D\n"); dcx(state,'D'); break;
 		case 0x1c: printf("INR E\n"); inr(state,'E'); break;
 		case 0x1d: printf("DCR E\n"); dcr(state,'E'); break;
-		case 0x1e: printf("MVI E,#$%02x\n", pointer[1]); size = 2; unimplemented(state); break;
+		case 0x1e: printf("MVI E,#$%02x\n", opcode[1]); size = 2; unimplemented(state); break;
 		case 0x1f: printf("RAR\n"); unimplemented(state); break; // Rotate accumulator right through carry
 		case 0x20: printf("NOP\n"); break;
-		case 0x21: printf("LXI H,#$%02x%02x\n", pointer[2], pointer[1]); size = 3; unimplemented(state); break;
-        case 0x22: printf("SHLD $%X%X\n", pointer[2], pointer[1]); size = 3; unimplemented(state); break; // Contents of H and L stored at address
+		case 0x21: printf("LXI H,#$%02x%02x\n", opcode[2], opcode[1]); size = 3; unimplemented(state); break;
+        case 0x22: printf("SHLD $%X%X\n", opcode[2], opcode[1]); size = 3; unimplemented(state); break; // Contents of H and L stored at address
 		case 0x23: printf("INX H\n"); inx(state,'H'); break;
 		case 0x24: printf("INR H\n"); inr(state,'H'); break;
 		case 0x25: printf("DCR H\n"); dcr(state,'H'); break;
-		case 0x26: printf("MVI H,#$%02x\n", pointer[1]); size = 2; unimplemented(state); break;
+		case 0x26: printf("MVI H,#$%02x\n", opcode[1]); size = 2; unimplemented(state); break;
 		case 0x27: printf("DAA\n"); unimplemented(state); break; // Adjust 8 bit accumulator to form two four bit decimals
 		case 0x28: printf("NOP\n"); break;
 		case 0x29: printf("DAD H\n"); dad(state,'H'); break;
-        case 0x2a: printf("LHLD $%X%X\n", pointer[2], pointer[1]); size = 3; unimplemented(state); break; // Load H and L with contents stored at address
+        case 0x2a: printf("LHLD $%X%X\n", opcode[2], opcode[1]); size = 3; unimplemented(state); break; // Load H and L with contents stored at address
 		case 0x2b: printf("DCX H\n"); dcx(state,'H'); break;
 		case 0x2c: printf("INR L\n"); inr(state,'L'); break;
 		case 0x2d: printf("DCR L\n"); dcr(state,'L'); break;
-		case 0x2e: printf("MVI L,#$%02x\n", pointer[1]); size = 2; unimplemented(state); break;
+		case 0x2e: printf("MVI L,#$%02x\n", opcode[1]); size = 2; unimplemented(state); break;
 		case 0x2f: printf("CMA\n"); unimplemented(state); break; // Complement accumulator
 		case 0x30: printf("NOP\n"); break;
-		case 0x31: printf("LXI SP,#$%02x%02x\n", pointer[2], pointer[1]); size = 3; unimplemented(state); break;
-        case 0x32: printf("STA $%X%X\n", pointer[2], pointer[1]); size = 3; unimplemented(state); break; // Store data in accumulator at address
+		case 0x31: printf("LXI SP,#$%02x%02x\n", opcode[2], opcode[1]); size = 3; unimplemented(state); break;
+        case 0x32: printf("STA $%X%X\n", opcode[2], opcode[1]); size = 3; unimplemented(state); break; // Store data in accumulator at address
 		case 0x33: printf("INX SP\n"); inx(state,'S'); break;
 		case 0x34: printf("INR M\n"); inr(state,'M'); break;
 		case 0x35: printf("DCR M\n"); dcr(state,'M'); break;
-		case 0x36: printf("MVI M,#$%02x\n", pointer[1]); size = 2; unimplemented(state); break;
+		case 0x36: printf("MVI M,#$%02x\n", opcode[1]); size = 2; unimplemented(state); break;
 		case 0x37: printf("STC\n"); unimplemented(state); break;
 		case 0x38: printf("NOP\n"); break;
 		case 0x39: printf("DAD SP\n"); dad(state,'S'); break;
-        case 0x3a: printf("LDA $%X%X\n", pointer[2], pointer[1]); size = 3; unimplemented(state); break;
+        case 0x3a: printf("LDA $%X%X\n", opcode[2], opcode[1]); size = 3; unimplemented(state); break;
 		case 0x3b: printf("DCX SP\n"); dcx(state,'S'); break;
-		case 0x3c: printf("INR A\n"); inr(state,'A); break;
+		case 0x3c: printf("INR A\n"); inr(state,'A'); break;
 		case 0x3d: printf("DCR A\n"); dcr(state,'A'); break;
-		case 0x3e: printf("MVI A,#$%02x\n", pointer[1]); size = 2; unimplemented(state); break;
+		case 0x3e: printf("MVI A,#$%02x\n", opcode[1]); size = 2; unimplemented(state); break;
         case 0x3f: printf("CMC\n"); unimplemented(state); break;
 		case 0x40: printf("MOV B,B\n"); unimplemented(state); break;
 		case 0x41: printf("MOV B,C\n"); unimplemented(state); break;
@@ -314,17 +315,17 @@ void emulate_op(hw_state* state) {
 		case 0x81: printf("ADD C\n"); add(state, state->c); break;
 		case 0x82: printf("ADD D\n"); add(state, state->d); break;
 		case 0x83: printf("ADD E\n"); add(state, state->e); break;
-		case 0x84: printf("ADD H\n"); add(state, state->h) break;
-		case 0x85: printf("ADD L\n"); add(state, state->l) break;
-		case 0x86: printf("ADD M\n"); add(state, memory[get_reg_pair(state,'H')]); break;
-		case 0x87: printf("ADD A\n"); add(state, state->a) break;
+		case 0x84: printf("ADD H\n"); add(state, state->h); break;
+		case 0x85: printf("ADD L\n"); add(state, state->l); break;
+		case 0x86: printf("ADD M\n"); add(state, state->memory[get_reg_pair(state,'H')]); break;
+		case 0x87: printf("ADD A\n"); add(state, state->a); break;
 		case 0x88: printf("ADC B\n"); add(state, state->b); break;
 		case 0x89: printf("ADC C\n"); add(state, state->c); break;
 		case 0x8a: printf("ADC D\n"); add(state, state->d); break;
 		case 0x8b: printf("ADC E\n"); add(state, state->e); break;
 		case 0x8c: printf("ADC H\n"); add(state, state->h); break;
 		case 0x8d: printf("ADC L\n"); add(state, state->l); break;
-		case 0x8e: printf("ADC M\n"); add(state, memory[get_reg_pair(state,'H')]); break;
+		case 0x8e: printf("ADC M\n"); add(state, state->memory[get_reg_pair(state,'H')]); break;
 		case 0x8f: printf("ADC A\n"); add(state, state->a); break;
 		case 0x90: printf("SUB B\n"); sub(state, state->b); break; // Subtract register from accumulator
 		case 0x91: printf("SUB C\n"); sub(state, state->c); break;
@@ -332,7 +333,7 @@ void emulate_op(hw_state* state) {
 		case 0x93: printf("SUB E\n"); sub(state, state->e); break;
 		case 0x94: printf("SUB H\n"); sub(state, state->h); break;
 		case 0x95: printf("SUB L\n"); sub(state, state->l); break;
-		case 0x96: printf("SUB M\n"); sub(state, memory[get_reg_pair(state,'H')]); break;
+		case 0x96: printf("SUB M\n"); sub(state, state->memory[get_reg_pair(state,'H')]); break;
 		case 0x97: printf("SUB A\n"); sub(state, state->a); break;
 		case 0x98: printf("SBB B\n"); sbb(state, state->b); break; // Subtract register from accumulator with borrow
 		case 0x99: printf("SBB C\n"); sbb(state, state->c); break;
@@ -340,7 +341,7 @@ void emulate_op(hw_state* state) {
 		case 0x9b: printf("SBB E\n"); sbb(state, state->e); break;
 		case 0x9c: printf("SBB H\n"); sbb(state, state->h); break;
 		case 0x9d: printf("SBB L\n"); sbb(state, state->l); break;
-		case 0x9e: printf("SBB M\n"); sbb(state, memory[get_reg_pair(state,'H')]); break;
+		case 0x9e: printf("SBB M\n"); sbb(state, state->memory[get_reg_pair(state,'H')]); break;
 		case 0x9f: printf("SBB A\n"); sbb(state, state->a); break;
 		case 0xa0: printf("ANA B\n"); unimplemented(state); break; // Bitwise AND register with accumulator
 		case 0xa1: printf("ANA C\n"); unimplemented(state); break;
@@ -376,67 +377,67 @@ void emulate_op(hw_state* state) {
 		case 0xbf: printf("CMP A\n"); unimplemented(state); break;
 		case 0xc0: printf("RNZ\n"); unimplemented(state); break; // If zero bit is zero, jump to return address
 		case 0xc1: printf("POP B\n"); unimplemented(state); break; // Pop stack to register pair
-        case 0xc2: printf("JNZ $%X%X\n", pointer[2], pointer[1]); size = 3; unimplemented(state); break; // If zero bit is zero, jump to address
-        case 0xc3: printf("JMP $%X%X\n", pointer[2], pointer[1]); size = 3; unimplemented(state); break; // Jump to address
-        case 0xc4: printf("CNZ $%X%X\n", pointer[2], pointer[1]); size = 3; unimplemented(state); break; // TBD
+        case 0xc2: printf("JNZ $%X%X\n", opcode[2], opcode[1]); size = 3; unimplemented(state); break; // If zero bit is zero, jump to address
+        case 0xc3: printf("JMP $%X%X\n", opcode[2], opcode[1]); size = 3; unimplemented(state); break; // Jump to address
+        case 0xc4: printf("CNZ $%X%X\n", opcode[2], opcode[1]); size = 3; unimplemented(state); break; // TBD
 		case 0xc5: printf("PUSH B\n"); unimplemented(state); break; // Push register pair onto stack
-		case 0xc6: printf("ADI #$%02x\n", pointer[1]); add(state, pointer[1]); state->pc += 1; break; // Add immediate to accumulator
+		case 0xc6: printf("ADI #$%02x\n", opcode[1]); add(state, opcode[1]); state->pc += 1; break; // Add immediate to accumulator
 		case 0xc7: printf("RST 0\n"); unimplemented(state); break;
 		case 0xc8: printf("RZ\n"); unimplemented(state); break; // If zero bit is one, return
 		case 0xc9: printf("RET\n"); unimplemented(state); break; // Return to address at top of stack
-        case 0xca: printf("JZ $%X%X\n", pointer[2], pointer[1]); size = 3; unimplemented(state); break; // If zero bit is one, jump to address
+        case 0xca: printf("JZ $%X%X\n", opcode[2], opcode[1]); size = 3; unimplemented(state); break; // If zero bit is one, jump to address
 		case 0xcb: printf("NOP\n"); break;
-		case 0xcc: printf("CZ $%X%X\n", pointer[2], pointer[1]); unimplemented(state); break; // If zero bit is one, call address
-		case 0xcd: printf("CALL $%X%X\n", pointer[2], pointer[1]); unimplemented(state); break; // Push PC to stack, jump to address
-		case 0xce: printf("ACI #$%02x\n", pointer[1]); adc(state, pointer[1]); state->pc += 1; break; // Add immediate to accumulator with carry
+		case 0xcc: printf("CZ $%X%X\n", opcode[2], opcode[1]); unimplemented(state); break; // If zero bit is one, call address
+		case 0xcd: printf("CALL $%X%X\n", opcode[2], opcode[1]); unimplemented(state); break; // Push PC to stack, jump to address
+		case 0xce: printf("ACI #$%02x\n", opcode[1]); adc(state, opcode[1]); state->pc += 1; break; // Add immediate to accumulator with carry
 		case 0xcf: printf("RST 1\n"); unimplemented(state); break; // Special call
 		case 0xd0: printf("RNC\n"); unimplemented(state); break; // If not carry, return
 		case 0xd1: printf("POP D\n"); unimplemented(state); break;
-        case 0xd2: printf("JNC $%X%X\n", pointer[2], pointer[1]); size = 3; unimplemented(state); break; // If not carry, jump to address
-		case 0xd3: printf("OUT #$%02x\n", pointer[1]); size = 2; unimplemented(state); break; // ???
-        case 0xd4: printf("CNC $%X%X\n", pointer[2], pointer[1]); size = 3; unimplemented(state); break; // If not carry, call address
+        case 0xd2: printf("JNC $%X%X\n", opcode[2], opcode[1]); size = 3; unimplemented(state); break; // If not carry, jump to address
+		case 0xd3: printf("OUT #$%02x\n", opcode[1]); size = 2; unimplemented(state); break; // ???
+        case 0xd4: printf("CNC $%X%X\n", opcode[2], opcode[1]); size = 3; unimplemented(state); break; // If not carry, call address
 		case 0xd5: printf("PUSH D\n"); unimplemented(state); break;
-        case 0xd6: printf("SUI #$%02x\n", pointer[1]); sub(state, pointer[1]); state->pc += 1; break; // Subtract immediate from accumulator
+        case 0xd6: printf("SUI #$%02x\n", opcode[1]); sub(state, opcode[1]); state->pc += 1; break; // Subtract immediate from accumulator
 		case 0xd7: printf("RST 2\n"); unimplemented(state); break; // TBD
 		case 0xd8: printf("RC\n"); unimplemented(state); break; // If carry, return
 		case 0xd9: printf("NOP\n"); break;
-        case 0xda: printf("JC $%X%X\n", pointer[2], pointer[1]); size = 3; unimplemented(state); break; // If carry, jump to address
-		case 0xdb: printf("IN #$%02x\n", pointer[1]); size = 2; unimplemented(state); break; // ???
-        case 0xdc: printf("CC $%X%X\n", pointer[2], pointer[1]); size = 3; unimplemented(state); break; // If carry, call address
+        case 0xda: printf("JC $%X%X\n", opcode[2], opcode[1]); size = 3; unimplemented(state); break; // If carry, jump to address
+		case 0xdb: printf("IN #$%02x\n", opcode[1]); size = 2; unimplemented(state); break; // ???
+        case 0xdc: printf("CC $%X%X\n", opcode[2], opcode[1]); size = 3; unimplemented(state); break; // If carry, call address
 		case 0xdd: printf("NOP\n"); break;
-		case 0xde: printf("SBI #$%02x\n", pointer[1]); sbb(state, pointer[1]); state->pc += 1; break; // Subtract immediate from accumulator with carry
+		case 0xde: printf("SBI #$%02x\n", opcode[1]); sbb(state, opcode[1]); state->pc += 1; break; // Subtract immediate from accumulator with carry
 		case 0xdf: printf("RST 3\n"); unimplemented(state); break; // TBD
 		case 0xe0: printf("RPO\n"); unimplemented(state); break; // If parity bit zero, return
 		case 0xe1: printf("POP H\n"); unimplemented(state); break;
-        case 0xe2: printf("JPO $%X%X\n", pointer[2], pointer[1]); size = 3; unimplemented(state); break; // If parity bit zero, jump to address
+        case 0xe2: printf("JPO $%X%X\n", opcode[2], opcode[1]); size = 3; unimplemented(state); break; // If parity bit zero, jump to address
 		case 0xe3: printf("XTHL\n"); unimplemented(state); break; // Exchange H and L registers with data at stack pointer
-        case 0xe4: printf("CPO $%X%X\n", pointer[2], pointer[1]); size = 3; unimplemented(state); break; // If PO, call address
+        case 0xe4: printf("CPO $%X%X\n", opcode[2], opcode[1]); size = 3; unimplemented(state); break; // If PO, call address
 		case 0xe5: printf("PUSH H\n"); unimplemented(state); break;
-		case 0xe6: printf("ANI %X\n", pointer[1]); size = 2; unimplemented(state); break; // Bitwise AND immediate with accumulator
+		case 0xe6: printf("ANI %X\n", opcode[1]); size = 2; unimplemented(state); break; // Bitwise AND immediate with accumulator
 		case 0xe7: printf("RST 4\n"); unimplemented(state); break;
 		case 0xe8: printf("RPE\n"); unimplemented(state); break;
 		case 0xe9: printf("PCHL\n"); unimplemented(state); break; // PC set to H and L
-        case 0xea: printf("JPE $%X%X\n", pointer[2], pointer[1]); size = 3; unimplemented(state); break; // If parity bit one, jump to address
+        case 0xea: printf("JPE $%X%X\n", opcode[2], opcode[1]); size = 3; unimplemented(state); break; // If parity bit one, jump to address
 		case 0xeb: printf("XCHG\n"); unimplemented(state); break; // Exchange H and L registers with D and E registers
-		case 0xec: printf("CPE $%X%X\n", pointer[2], pointer[1]); size = 3; unimplemented(state); break; // If parity bit one, call address
+		case 0xec: printf("CPE $%X%X\n", opcode[2], opcode[1]); size = 3; unimplemented(state); break; // If parity bit one, call address
 		case 0xed: printf("NOP\n"); break;
-        case 0xee: printf("XRI %X\n", pointer[1]); size = 2; unimplemented(state); break; // Bitwise XOR immediate with accumulator
+        case 0xee: printf("XRI %X\n", opcode[1]); size = 2; unimplemented(state); break; // Bitwise XOR immediate with accumulator
 		case 0xef: printf("RST 5\n"); unimplemented(state); break;
 		case 0xf0: printf("RP\n"); unimplemented(state); break; // If sign bit zero, return
 		case 0xf1: printf("POP PSW\n"); unimplemented(state); break;
-        case 0xf2: printf("JP $%X%X\n", pointer[2], pointer[1]); size = 3; unimplemented(state); break; // If sign bit zero, jump to address
+        case 0xf2: printf("JP $%X%X\n", opcode[2], opcode[1]); size = 3; unimplemented(state); break; // If sign bit zero, jump to address
 		case 0xf3: printf("DI\n"); unimplemented(state); break;
-        case 0xf4: printf("CP $%X%X\n", pointer[2], pointer[1]); size = 3; unimplemented(state); break; // If sign bit zero, call address
+        case 0xf4: printf("CP $%X%X\n", opcode[2], opcode[1]); size = 3; unimplemented(state); break; // If sign bit zero, call address
 		case 0xf5: printf("PUSH PSW\n"); unimplemented(state); break;
-        case 0xf6: printf("ORI #$%02x\n", pointer[1]); size = 2; unimplemented(state); break;
+        case 0xf6: printf("ORI #$%02x\n", opcode[1]); size = 2; unimplemented(state); break;
 		case 0xf7: printf("RST 6\n"); unimplemented(state); break;
 		case 0xf8: printf("RM\n"); unimplemented(state); break; // If sign bit one, return
 		case 0xf9: printf("SPHL\n"); unimplemented(state); break; // H and L replace data at stack pointer
-        case 0xfa: printf("JM $%X%X\n", pointer[2], pointer[1]); size = 3; unimplemented(state); break; // If sign bit one, jump to address
+        case 0xfa: printf("JM $%X%X\n", opcode[2], opcode[1]); size = 3; unimplemented(state); break; // If sign bit one, jump to address
 		case 0xfb: printf("EI\n"); unimplemented(state); break;
-        case 0xfc: printf("CM $%X%X\n", pointer[2], pointer[1]); size = 3; unimplemented(state); break; // If sign bit one, call address
+        case 0xfc: printf("CM $%X%X\n", opcode[2], opcode[1]); size = 3; unimplemented(state); break; // If sign bit one, call address
 		case 0xfd: printf("NOP\n"); break;
-        case 0xfe: printf("CPI #$%02x\n", pointer[1]); size = 2; unimplemented(state); break; // Compare immediate with accumulator
+        case 0xfe: printf("CPI #$%02x\n", opcode[1]); size = 2; unimplemented(state); break; // Compare immediate with accumulator
 		case 0xff: printf("RST 7\n"); unimplemented(state); break;
 	}
 	state->pc += 1;
@@ -470,10 +471,14 @@ int main(int argc, char** argv) {
 	fread(buffer, sizeof(byte), numbytes, fp); // read file into buffer
 	fclose(fp);
 
-    int pc = 0;
-	while (pc < numbytes) {
-		printf("%04X ", pc);
-		pc += decode_op(buffer, pc); // move past instruction
+	c_bits bits;
+	hw_state state = {.cc = bits, .memory = buffer}; // initialize state, load program into memory
+	int x = 0;
+	while (x < 10) {
+		printf("PC: %04X ", state.pc);
+		printf("ACCUMULATOR: %d ", state.a);
+		emulate(&state);
+		x+=1;
 	}
 	return 0;
 }
