@@ -1,1 +1,10 @@
-The accumulator doesn't overflow as you would expect (i.e. can hold values above 127). Is this just a printing issue?
+1. The accumulator doesn't overflow as you would expect (i.e. can hold values above 127). Is this just a printing issue?
+A: just print it properly
+
+2.
+
+3.
+
+4.
+
+5.
