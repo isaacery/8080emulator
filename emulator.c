@@ -116,11 +116,17 @@ uint16_t pop(hw_state* state) {
 
 /* --------------- JUMPS  ----------------*/
 
-// Jump (change pc) to address contained in the two bytes following the opcode
+// Jump to address contained in the two bytes following the opcode
 void jmp(hw_state* state, byte* opcode) {
 	state->pc = (opcode[2] << 8) | opcode[1]; // jump
 }
 
+// Jump to address contained in HL register pair
+void pchl(hw_state* state) {
+	state->pc = get_reg_pair(state, 'H');
+}
+
+// Jump if condition is met
 void jump_if(hw_state* state, byte* opcode, int cond) {
 	if (cond) {
 		state->pc = (opcode[2] << 8) | opcode[1];
@@ -226,9 +232,16 @@ void rp(hw_state* state) {
 
 /* -------------- CALLS --------------- */
 
+// Push pc to stack then jump to address specified in two bytes following opcode
 void call(hw_state* state, byte* opcode) {
 	push(state, state->pc+1); // push address of next instruction to stack
 	jump(state, opcode);
+}
+
+// Reset - make call to specified address
+void rst(hw_state* state, uint16_t adr) {
+	push(state, state->pc+1);
+	state->pc = adr;
 }
 
 void call_if(hw_state* state, byte* opcode, int cond) {
@@ -565,7 +578,7 @@ void emulate(hw_state* state) {
         case 0xc4: printf("CNZ $%X%X\n", opcode[2], opcode[1]); size = 3; cnz(state, opcode); break; // TBD
 		case 0xc5: printf("PUSH B\n"); unimplemented(state); break; // Push register pair onto stack
 		case 0xc6: printf("ADI #$%02x\n", opcode[1]); add(state, opcode[1]); state->pc += 1; break; // Add immediate to accumulator
-		case 0xc7: printf("RST 0\n"); unimplemented(state); break;
+		case 0xc7: printf("RST 0\n"); rst(state, 0<<3); break;
 		case 0xc8: printf("RZ\n"); rz(state); break; // If zero bit is one, return
 		case 0xc9: printf("RET\n"); ret(state); break; // Return to address at top of stack
         case 0xca: printf("JZ $%X%X\n", opcode[2], opcode[1]); size = 3; jz(state, opcode); break; // If zero bit is one, jump to address
@@ -573,7 +586,7 @@ void emulate(hw_state* state) {
 		case 0xcc: printf("CZ $%X%X\n", opcode[2], opcode[1]); cz(state, opcode); break; // If zero bit is one, call address
 		case 0xcd: printf("CALL $%X%X\n", opcode[2], opcode[1]); call(state, opcode); break; // Push PC to stack, jump to address
 		case 0xce: printf("ACI #$%02x\n", opcode[1]); adc(state, opcode[1]); state->pc += 1; break; // Add immediate to accumulator with carry
-		case 0xcf: printf("RST 1\n"); unimplemented(state); break; // Special call
+		case 0xcf: printf("RST 1\n"); rst(state, 1<<3); break; // Special call
 		case 0xd0: printf("RNC\n"); rnc(state); break; // If not carry, return
 		case 0xd1: printf("POP D\n"); unimplemented(state); break;
         case 0xd2: printf("JNC $%X%X\n", opcode[2], opcode[1]); size = 3; jnc(state, opcode); break; // If not carry, jump to address
@@ -581,7 +594,7 @@ void emulate(hw_state* state) {
         case 0xd4: printf("CNC $%X%X\n", opcode[2], opcode[1]); size = 3; cnc(state, opcode); break; // If not carry, call address
 		case 0xd5: printf("PUSH D\n"); unimplemented(state); break;
         case 0xd6: printf("SUI #$%02x\n", opcode[1]); sub(state, opcode[1]); state->pc += 1; break; // Subtract immediate from accumulator
-		case 0xd7: printf("RST 2\n"); unimplemented(state); break; // TBD
+		case 0xd7: printf("RST 2\n"); rst(state, 2<<3); break; // TBD
 		case 0xd8: printf("RC\n"); rc(state); break; // If carry, return
 		case 0xd9: printf("NOP\n"); break;
         case 0xda: printf("JC $%X%X\n", opcode[2], opcode[1]); size = 3; jc(state, opcode); break; // If carry, jump to address
@@ -589,7 +602,7 @@ void emulate(hw_state* state) {
         case 0xdc: printf("CC $%X%X\n", opcode[2], opcode[1]); size = 3; cc(state, opcode); break; // If carry, call address
 		case 0xdd: printf("NOP\n"); break;
 		case 0xde: printf("SBI #$%02x\n", opcode[1]); sbb(state, opcode[1]); state->pc += 1; break; // Subtract immediate from accumulator with carry
-		case 0xdf: printf("RST 3\n"); unimplemented(state); break; // TBD
+		case 0xdf: printf("RST 3\n"); rst(state, 3<<3); break; // TBD
 		case 0xe0: printf("RPO\n"); rpo(state); break; // If parity bit zero, return
 		case 0xe1: printf("POP H\n"); unimplemented(state); break;
         case 0xe2: printf("JPO $%X%X\n", opcode[2], opcode[1]); jpo(state, opcode); break; // If parity bit zero, jump to address
@@ -597,7 +610,7 @@ void emulate(hw_state* state) {
         case 0xe4: printf("CPO $%X%X\n", opcode[2], opcode[1]); size = 3; cpo(state, opcode); break; // If PO, call address
 		case 0xe5: printf("PUSH H\n"); unimplemented(state); break;
 		case 0xe6: printf("ANI %X\n", opcode[1]); size = 2; unimplemented(state); break; // Bitwise AND immediate with accumulator
-		case 0xe7: printf("RST 4\n"); unimplemented(state); break;
+		case 0xe7: printf("RST 4\n"); rst(state, 4<<3); break;
 		case 0xe8: printf("RPE\n"); rpe(state); break;
 		case 0xe9: printf("PCHL\n"); unimplemented(state); break; // PC set to H and L
         case 0xea: printf("JPE $%X%X\n", opcode[2], opcode[1]); size = 3; jpe(state, opcode); break; // If parity bit one, jump to address
@@ -605,7 +618,7 @@ void emulate(hw_state* state) {
 		case 0xec: printf("CPE $%X%X\n", opcode[2], opcode[1]); size = 3; cpe(state, opcode); break; // If parity bit one, call address
 		case 0xed: printf("NOP\n"); break;
         case 0xee: printf("XRI %X\n", opcode[1]); size = 2; unimplemented(state); break; // Bitwise XOR immediate with accumulator
-		case 0xef: printf("RST 5\n"); unimplemented(state); break;
+		case 0xef: printf("RST 5\n"); rst(state, 5<<3); break;
 		case 0xf0: printf("RP\n"); rp(state); break; // If sign bit zero, return
 		case 0xf1: printf("POP PSW\n"); unimplemented(state); break;
         case 0xf2: printf("JP $%X%X\n", opcode[2], opcode[1]); jp(state, opcode); break; // If sign bit zero, jump to address
@@ -613,7 +626,7 @@ void emulate(hw_state* state) {
         case 0xf4: printf("CP $%X%X\n", opcode[2], opcode[1]); size = 3; cp(state, opcode); break; // If sign bit zero, call address
 		case 0xf5: printf("PUSH PSW\n"); unimplemented(state); break;
         case 0xf6: printf("ORI #$%02x\n", opcode[1]); size = 2; unimplemented(state); break;
-		case 0xf7: printf("RST 6\n"); unimplemented(state); break;
+		case 0xf7: printf("RST 6\n"); rst(state, 6<<3); break;
 		case 0xf8: printf("RM\n"); rm(state); break; // If sign bit one, return
 		case 0xf9: printf("SPHL\n"); unimplemented(state); break; // H and L replace data at stack pointer
         case 0xfa: printf("JM $%X%X\n", opcode[2], opcode[1]); jm(state, opcode); break; // If sign bit one, jump to address
@@ -621,7 +634,7 @@ void emulate(hw_state* state) {
         case 0xfc: printf("CM $%X%X\n", opcode[2], opcode[1]); size = 3; cm(state, opcode); break; // If sign bit one, call address
 		case 0xfd: printf("NOP\n"); break;
         case 0xfe: printf("CPI #$%02x\n", opcode[1]); size = 2; unimplemented(state); break; // Compare immediate with accumulator
-		case 0xff: printf("RST 7\n"); unimplemented(state); break;
+		case 0xff: printf("RST 7\n"); rst(state, 7<<3); break;
 	}
 	state->pc += 1;
 }
