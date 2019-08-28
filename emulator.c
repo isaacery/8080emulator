@@ -93,10 +93,66 @@ void unimplemented(hw_state* state) {
 void lxi(hw_state* state, byte* opcode, char reg) {
 	switch (reg) {
 		case 'B': state->b = opcode[2]; state->c = opcode[1]; break;
-		case 'C': state->c = opcode[2]; state->d = opcode[1]; break;
+		case 'D': state->d = opcode[2]; state->e = opcode[1]; break;
+		case 'H': state->h = opcode[2]; state->l = opcode[1]; break;
+		case 'S': state->sp = (opcode[2] << 8) | opcode[1]; break;
 	}
-	state->pc += 2;
+	state->pc += 2; // increment pc by 2 more than default (3 total)
 }
+
+// Jump (change pc) to address contained in the two bytes following the opcode
+void jmp(hw_state* state, byte* opcode) {
+	state->pc = (opcode[2] << 8) | opcode[1]; // jump
+}
+
+void jump_if(hw_state* state, byte* opcode, int cond) {
+	if (cond) {
+		state->pc = (opcode[2] << 8) | opcode[1];
+	} else {
+		state->pc += 2; // account for size of instruction
+	}
+}
+
+// Jump if zero bit is set
+void jz(hw_state* state, byte* opcode) {
+	jump_if(state, opcode, state->cc.z)
+}
+
+// Jump if zero bit is not set
+void jnz(hw_state* state, byte* opcode) {
+	jump_if(state, opcode, !(state->cc.z))
+}
+
+// Jump if carry bit is set
+void jc(hw_state* state, byte* opcode) {
+	jump_if(state, opcode, state->cc.cy)
+}
+
+// Jump if carry bit is not set
+void jnc(hw_state* state, byte* opcode) {
+	jump_if(state, opcode, !(state->cc.cy))
+}
+
+// Jump if parity odd
+void jpo(hw_state* state, byte* opcode) {
+	jump_if(state, opcode, state->cc.p)
+}
+
+// Jump if parity even
+void jpe(hw_state* state, byte* opcode) {
+	jump_if(state, opcode, !(state->cc.p))
+}
+
+// Jump if sign minus
+void jm(hw_state* state, byte* opcode) {
+	jump_if(state, opcode, state->cc.s)
+}
+
+// Jump if sign plus
+void jp(hw_state* state, byte* opcode) {
+	jump_if(state, opcode, !(state->cc.s))
+}
+
 
 // Add v to accumulator, update condition bits
 void add(hw_state* state, uint16_t v) {
@@ -184,7 +240,7 @@ void emulate(hw_state* state) {
     // Each "register pair" is denoted by the first register. E.g. 'B' can refer to the pair B, C
 	switch (*opcode) {
 		case 0x00: printf("NOP\n"); break; // Do nothing
-		case 0x01: lxi(state, opcode, 'B'); break; // LXI B,C
+		case 0x01: printf("LXI B,#$%02x%02x\n", opcode[2], opcode[1]); lxi(state, opcode, 'B'); break; // LXI B,C
 		case 0x02: printf("STAX B\n"); unimplemented(state); break; // Store accumulator
 		case 0x03: printf("INX B\n"); inx(state,'B'); break; // Increment 16-bit value in register pair
 		case 0x04: printf("INR B\n"); inr(state,'B'); break; // Increment register
@@ -200,7 +256,7 @@ void emulate(hw_state* state) {
         case 0x0e: printf("MVI C,#$%02x\n", opcode[1]); size = 2; unimplemented(state); break;
 		case 0x0f: printf("RRC\n"); unimplemented(state); break; // Rotate accumulator right
 		case 0x10: printf("NOP\n"); break;
-        case 0x11: printf("LXI D,#$%02x%02x\n", opcode[2], opcode[1]); size = 3; unimplemented(state); break;
+        case 0x11: printf("LXI D,#$%02x%02x\n", opcode[2], opcode[1]); lxi(state, opcode, 'D'); break;
 		case 0x12: printf("STAX D\n"); unimplemented(state); break;
 		case 0x13: printf("INX D\n"); inx(state,'D'); break;
 		case 0x14: printf("INR D\n"); inr(state,'D'); break;
@@ -216,7 +272,7 @@ void emulate(hw_state* state) {
 		case 0x1e: printf("MVI E,#$%02x\n", opcode[1]); size = 2; unimplemented(state); break;
 		case 0x1f: printf("RAR\n"); unimplemented(state); break; // Rotate accumulator right through carry
 		case 0x20: printf("NOP\n"); break;
-		case 0x21: printf("LXI H,#$%02x%02x\n", opcode[2], opcode[1]); size = 3; unimplemented(state); break;
+		case 0x21: printf("LXI H,#$%02x%02x\n", opcode[2], opcode[1]); lxi(state,opcode,'H'); break;
         case 0x22: printf("SHLD $%X%X\n", opcode[2], opcode[1]); size = 3; unimplemented(state); break; // Contents of H and L stored at address
 		case 0x23: printf("INX H\n"); inx(state,'H'); break;
 		case 0x24: printf("INR H\n"); inr(state,'H'); break;
@@ -232,7 +288,7 @@ void emulate(hw_state* state) {
 		case 0x2e: printf("MVI L,#$%02x\n", opcode[1]); size = 2; unimplemented(state); break;
 		case 0x2f: printf("CMA\n"); unimplemented(state); break; // Complement accumulator
 		case 0x30: printf("NOP\n"); break;
-		case 0x31: printf("LXI SP,#$%02x%02x\n", opcode[2], opcode[1]); size = 3; unimplemented(state); break;
+		case 0x31: printf("LXI SP,#$%02x%02x\n", opcode[2], opcode[1]); lxi(state,opcode,'S'); break;
         case 0x32: printf("STA $%X%X\n", opcode[2], opcode[1]); size = 3; unimplemented(state); break; // Store data in accumulator at address
 		case 0x33: printf("INX SP\n"); inx(state,'S'); break;
 		case 0x34: printf("INR M\n"); inr(state,'M'); break;
@@ -377,15 +433,15 @@ void emulate(hw_state* state) {
 		case 0xbf: printf("CMP A\n"); unimplemented(state); break;
 		case 0xc0: printf("RNZ\n"); unimplemented(state); break; // If zero bit is zero, jump to return address
 		case 0xc1: printf("POP B\n"); unimplemented(state); break; // Pop stack to register pair
-        case 0xc2: printf("JNZ $%X%X\n", opcode[2], opcode[1]); size = 3; unimplemented(state); break; // If zero bit is zero, jump to address
-        case 0xc3: printf("JMP $%X%X\n", opcode[2], opcode[1]); size = 3; unimplemented(state); break; // Jump to address
+        case 0xc2: printf("JNZ $%X%X\n", opcode[2], opcode[1]); size = 3; jnz(state, opcode); break; // If zero bit is zero, jump to address
+        case 0xc3: printf("JMP $%X%X\n", opcode[2], opcode[1]); size = 3; jmp(state, opcode); break; // Jump to address
         case 0xc4: printf("CNZ $%X%X\n", opcode[2], opcode[1]); size = 3; unimplemented(state); break; // TBD
 		case 0xc5: printf("PUSH B\n"); unimplemented(state); break; // Push register pair onto stack
 		case 0xc6: printf("ADI #$%02x\n", opcode[1]); add(state, opcode[1]); state->pc += 1; break; // Add immediate to accumulator
 		case 0xc7: printf("RST 0\n"); unimplemented(state); break;
 		case 0xc8: printf("RZ\n"); unimplemented(state); break; // If zero bit is one, return
 		case 0xc9: printf("RET\n"); unimplemented(state); break; // Return to address at top of stack
-        case 0xca: printf("JZ $%X%X\n", opcode[2], opcode[1]); size = 3; unimplemented(state); break; // If zero bit is one, jump to address
+        case 0xca: printf("JZ $%X%X\n", opcode[2], opcode[1]); size = 3; jz(state, opcode); break; // If zero bit is one, jump to address
 		case 0xcb: printf("NOP\n"); break;
 		case 0xcc: printf("CZ $%X%X\n", opcode[2], opcode[1]); unimplemented(state); break; // If zero bit is one, call address
 		case 0xcd: printf("CALL $%X%X\n", opcode[2], opcode[1]); unimplemented(state); break; // Push PC to stack, jump to address
