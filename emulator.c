@@ -18,7 +18,7 @@ typedef struct hw_state { // state of the processor
 	uint8_t e;
 	uint8_t h;
 	uint8_t l;
-	uint16_t sp; // stack pointer - grows upwards (lower addresses)
+	uint16_t sp; // stack pointer - grows upwards (toward lower addresses)
 	uint16_t pc; // program counter
 	uint8_t* memory; // main memory
 	struct c_bits cc; // condition bits
@@ -100,7 +100,14 @@ void lxi(hw_state* state, byte* opcode, char reg) {
 	state->pc += 2; // increment pc by 2 more than default (3 total)
 }
 
-void push_16b(hw_state* state, uint16_t v) {
+/* -------------- STACK ---------------- */
+
+// pop stack to specified register
+void pop(hw_state * state, char reg) {
+	set_reg_pair(state, pop_16(state), reg); // TODO: inefficient 8b->16b->8b
+}
+
+void push(hw_state* state, uint16_t v) {
 	uint8_t v_h = (v >> 8) & 0xff; // high byte of v
 	uint8_t v_l = v & 0xff; // low byte of v
 	state->memory[state->sp] = v_h; // push low byte first
@@ -108,7 +115,7 @@ void push_16b(hw_state* state, uint16_t v) {
 	state->sp -= 2; // point stack pointer at top of stack
 }
 
-uint16_t pop(hw_state* state) {
+uint16_t pop_16(hw_state* state) {
 	uint16_t v = (state->memory[state->sp+1] << 8) | state->memory[state->sp]
 	state->sp += 2 // point stack pointer at top of stack
 	return v;
@@ -179,7 +186,7 @@ void jp(hw_state* state, byte* opcode) {
 
 // Pops return address from stack
 void ret(hw_state* state) {
-	state->pc = pop(state);
+	state->pc = pop_16(state);
 	state->sp += 2
 }
 
@@ -234,13 +241,13 @@ void rp(hw_state* state) {
 
 // Push pc to stack then jump to address specified in two bytes following opcode
 void call(hw_state* state, byte* opcode) {
-	push_16b(state, state->pc+1); // push address of next instruction to stack
+	push(state, state->pc+1); // push address of next instruction to stack
 	jump(state, opcode);
 }
 
 // Reset - make call to specified address
 void rst(hw_state* state, uint16_t adr) {
-	push_16b(state, state->pc+1);
+	push(state, state->pc+1);
 	state->pc = adr;
 }
 
@@ -670,7 +677,7 @@ void emulate(hw_state* state) {
 		case 0xbe: printf("CMP M\n"); cmp(state, state->memory[get_reg_pair(state,'H')]); break;
 		case 0xbf: printf("CMP A\n"); cmp(state, state->a); break;
 		case 0xc0: printf("RNZ\n"); rnz(state); break; // If zero bit is zero, jump to return address
-		case 0xc1: printf("POP B\n"); unimplemented(state); break; // Pop stack to register pair
+		case 0xc1: printf("POP B\n"); state->b = pop_16(state) & 0xff; break; // Pop stack to register pair
         case 0xc2: printf("JNZ $%X%X\n", opcode[2], opcode[1]); size = 3; jnz(state, opcode); break; // If zero bit is zero, jump to address
         case 0xc3: printf("JMP $%X%X\n", opcode[2], opcode[1]); size = 3; jmp(state, opcode); break; // Jump to address
         case 0xc4: printf("CNZ $%X%X\n", opcode[2], opcode[1]); size = 3; cnz(state, opcode); break; // TBD
