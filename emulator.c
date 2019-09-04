@@ -42,6 +42,7 @@ uint16_t get_reg_pair(hw_state* state, char reg) {
 		case 'D': return (state->d<<8) | (state->e);
 		case 'H': return (state->h<<8) | (state->l);
 		case 'S': return state->sp; // stack pointer is treated as a register pair in the manual
+		case 'P': return get_psw(state);
 	}
 }
 
@@ -51,8 +52,27 @@ void set_reg_pair(hw_state* state, uint16_t v, char reg) {
 		case 'B': state->b = (v>>8) & 0xff; state->c = v & 0xff; break;
 		case 'D': state->d = (v>>8) & 0xff; state->e = v & 0xff; break;
 		case 'H': state->h = (v>>8) & 0xff; state->l = v & 0xff; break;
-		case 'S': state->sp = v; // stack pointer is treated as a register pair in the manual
+		case 'S': state->sp = v; break; // stack pointer is treated as a register pair in the manual
+		case 'P': set_psw(state, v); break;
 	}
+}
+
+// Gets accumulator concatenated with PSW from machine state as described in databook
+// PSW is stored like: |_ _ _ _A_ _ _ _|0_0_ac_cy_p_s_z|
+uint16_t get_psw(hw_state* state) {
+	return (state->a << 8) & (state->cc.z | (state->cc.s << 1) | (state->cc.p << 2) | (state->cc.cy << 3) | (state->ac << 4));
+}
+
+// Sets machine state from PSW value as described in databook
+// PSW is stored like: |_ _ _ _A_ _ _ _|0_0_ac_cy_p_s_z|
+void set_psw(hw_state* state, uint16_t psw) {
+	state->a = (psw >> 8) && 0xff // 8 most significant bits of psw
+	uint8_t psw_8 = psw && 0xff // 8 least significant bits of psw
+	state->cc.z  = (0x01 == (psw & 0x01));
+    state->cc.s  = (0x02 == (psw & 0x02));
+    state->cc.p  = (0x04 == (psw & 0x04));
+    state->cc.cy = (0x05 == (psw & 0x08));
+    state->cc.ac = (0x10 == (psw & 0x10));
 }
 
 // Returns the specified register
@@ -116,9 +136,13 @@ void push(hw_state* state, uint16_t v) {
 }
 
 uint16_t pop_16(hw_state* state) {
-	uint16_t v = (state->memory[state->sp+1] << 8) | state->memory[state->sp]
-	state->sp += 2 // point stack pointer at top of stack
+	uint16_t v = (state->memory[state->sp+1] << 8) | state->memory[state->sp];
+	state->sp += 2; // point stack pointer at top of stack
 	return v;
+}
+
+void sphl(hw_state* state) {
+	state.sp = state.get_reg_pair(state,'H');
 }
 
 /* --------------- JUMPS  ----------------*/
