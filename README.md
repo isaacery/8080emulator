@@ -1,6 +1,6 @@
 # 8080emulator
 WIP emulator for Intel 8080 processor written in C.
 
-Emulator.c contains code for emulation.
+Emulator.c contains code for emulation. Dissasembler.c contains an 8080 disassembler that can be used to analyze ROMs. 
 
-Dissasembler.c contains an 8080 disassembler that can be used to analyze ROMs. 
+Next steps include thorough testing, as well as I/O implementation so graphics and input can be handled. My ultimate goal is to emulate a simple game (such as space invaders) in real time!
